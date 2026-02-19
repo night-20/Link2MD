@@ -33,5 +33,6 @@ jobs:
           git remote add jihulab \
             "https://oauth2:${JIHULAB_TOKEN}@jihulab.com/night-20-group/Link2MD.git"
 
-          # 推送所有分支和标签（--mirror 会同步删除操作）
-          git push --mirror jihulab
+          # 仅同步所有分支和标签，避免同步 GitHub Action 环境下的隐藏引用 (如 refs/pull/ 或 refs/remotes/)
+          # 这样可以解决 "deny updating a hidden ref" 报错
+          git push --force jihulab "refs/heads/*:refs/heads/*" "refs/tags/*:refs/tags/*"
