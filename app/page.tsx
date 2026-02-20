@@ -1,13 +1,22 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
-import { Copy, Download, Loader2, ArrowRight, Menu, X, Key, Send, Bot, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Copy, Download, Loader2, ArrowRight, Menu, X, Key, Send, Bot, AlertCircle, CheckCircle2, LogOut, Clock, Trash2, History } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+}
+
+interface HistoryItem {
+  id: string;
+  url: string;
+  title: string;
+  markdown: string;
+  timestamp: number;
 }
 
 // ─── Provider Config ─────────────────────────────────────────────────────────
@@ -80,12 +89,63 @@ type ProviderId = typeof PROVIDERS[number]['id'];
 
 // ─── Main Page Component ──────────────────────────────────────────────────────
 export default function Home() {
+  const router = useRouter();
   // ── Converter State ──
   const [url, setUrl] = useState('');
   const [markdown, setMarkdown] = useState('');
   const [title, setTitle] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // ── Auth guard 已由 middleware.ts 处理，无需 sessionStorage ──
+
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    router.push('/login');
+  };
+
+  // ── History State ──
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+
+  // ── 时间格式化函数 ──
+  const formatRelativeTime = (timestamp: number): string => {
+    const diff = Date.now() - timestamp;
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    if (diff < 60000) return '刚刚';
+    if (minutes < 60) return `${minutes} 分钟前`;
+    if (hours < 24) return `${hours} 小时前`;
+    return `${Math.floor(hours / 24)} 天前`;
+  };
+
+  // ── 添加历史记录 ──
+  const addToHistory = (parsedUrl: string, parsedTitle: string, parsedMarkdown: string) => {
+    setHistory(prev => {
+      // 移除相同 URL 的旧记录，保持最近一条
+      const filtered = prev.filter(item => item.url !== parsedUrl);
+      const newItem: HistoryItem = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        url: parsedUrl,
+        title: parsedTitle,
+        markdown: parsedMarkdown,
+        timestamp: Date.now(),
+      };
+      // 最新的在头部，最多 30 条
+      return [newItem, ...filtered].slice(0, 30);
+    });
+  };
+
+  // ── 点击历史记录快速展示 ──
+  const handleClickHistory = (item: HistoryItem) => {
+    setUrl(item.url);
+    setTitle(item.title);
+    setMarkdown(item.markdown);
+    setError('');
+    setHistoryOpen(false);
+    // 重置 Agent 文章上下文
+    setArticleContextSent(false);
+  };
 
   // ── Sidebar / Agent State ──
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -132,6 +192,8 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error || '解析失败');
       setMarkdown(data.content);
       setTitle(data.title || '文章');
+      // 解析成功后添加历史
+      addToHistory(url, data.title || '文章', data.content);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -287,10 +349,16 @@ export default function Home() {
   return (
     <div style={{ minHeight: '100vh', background: '#f0ede8' }}>
 
-      {/* ── Sidebar Overlay ── */}
+      {/* ── Left Sidebar Overlay ── */}
       <div
         className={`sidebar-overlay ${sidebarOpen ? 'open' : ''}`}
         onClick={() => setSidebarOpen(false)}
+      />
+
+      {/* ── History Overlay ── */}
+      <div
+        className={`history-overlay ${historyOpen ? 'open' : ''}`}
+        onClick={() => setHistoryOpen(false)}
       />
 
       {/* ── Sidebar Panel ── */}
@@ -775,6 +843,81 @@ export default function Home() {
           <Menu size={20} />
         </button>
 
+        {/* 退出登录按钮（右上角）*/}
+        <button
+          onClick={handleLogout}
+          title="退出登录"
+          style={{
+            position: 'fixed',
+            top: 16,
+            right: 16,
+            zIndex: 30,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '8px 14px',
+            borderRadius: 10,
+            border: '1.5px solid #d4cfc9',
+            background: '#e8e4df',
+            color: '#5a5550',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+            transition: 'background 0.2s, color 0.2s',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = '#d97757'; e.currentTarget.style.color = 'white'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = '#e8e4df'; e.currentTarget.style.color = '#5a5550'; }}
+        >
+          <LogOut size={14} />
+          退出
+        </button>
+
+        {/* 历史搜索按鈕（退出鈤下方）*/}
+        <button
+          id="history-toggle-btn"
+          onClick={() => setHistoryOpen(true)}
+          title="历史搜索记录"
+          style={{
+            position: 'fixed',
+            top: 62,
+            right: 16,
+            zIndex: 30,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '8px 14px',
+            borderRadius: 10,
+            border: '1.5px solid #d4cfc9',
+            background: '#e8e4df',
+            color: '#5a5550',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+            transition: 'background 0.2s, color 0.2s',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = '#d97757'; e.currentTarget.style.color = 'white'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = '#e8e4df'; e.currentTarget.style.color = '#5a5550'; }}
+        >
+          <History size={14} />
+          历史{history.length > 0 && (
+            <span style={{
+              background: '#d97757',
+              color: 'white',
+              borderRadius: '50%',
+              width: 17,
+              height: 17,
+              fontSize: 10,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: 800,
+              flexShrink: 0,
+            }}>{history.length}</span>
+          )}
+        </button>
+
         <div style={{ maxWidth: 1280, margin: '0 auto' }}>
 
           {/* ── Header ── */}
@@ -790,7 +933,7 @@ export default function Home() {
               Link2MD
             </h1>
             <p style={{ color: '#9a9490', fontWeight: 500, letterSpacing: '0.02em', margin: 0, fontSize: 15 }}>
-              一键将网络文章转换为干净的 Markdown 格式。
+              支持：微信公众号 · CSDN · 掘金 · 牛客网 · PubMed · NCBI GEO
             </p>
           </div>
 
@@ -808,7 +951,7 @@ export default function Home() {
               value={url}
               onChange={e => setUrl(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !isLoading && url && handleParse()}
-              placeholder="在此粘贴链接 (支持微信公众号, CSDN, 掘金, 牛客网)..."
+              placeholder="粘贴链接（支持微信公众号、CSDN、掘金、牛客网、PubMed、NCBI GEO）..."
               style={{
                 flex: 1,
                 padding: '13px 18px',
@@ -997,6 +1140,125 @@ export default function Home() {
 
         </div>
       </main>
+
+      {/* ── History Right Panel ── */}
+      <aside className={`history-panel ${historyOpen ? 'open' : ''}`}>
+
+        {/* Header */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '16px 20px', borderBottom: '1px solid #d4cfc9', flexShrink: 0,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 30, height: 30, borderRadius: 8, background: 'linear-gradient(135deg, #d97757, #c56b4d)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Clock size={15} color="white" />
+            </div>
+            <div>
+              <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: '#2d2d2d' }}>历史搜索</p>
+              <p style={{ margin: 0, fontSize: 11, color: '#9a9490' }}>最多保存30条 · 仅本次登录有效</p>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {history.length > 0 && (
+              <button
+                onClick={() => setHistory([])}
+                title="清空历史"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#b0aaa3', padding: 4, borderRadius: 6, display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, transition: 'color 0.2s' }}
+                onMouseEnter={e => (e.currentTarget.style.color = '#e57373')}
+                onMouseLeave={e => (e.currentTarget.style.color = '#b0aaa3')}
+              >
+                <Trash2 size={13} />清空
+              </button>
+            )}
+            <button
+              onClick={() => setHistoryOpen(false)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9a9490', borderRadius: 6, padding: 4, display: 'flex', alignItems: 'center', transition: 'color 0.2s' }}
+              onMouseEnter={e => (e.currentTarget.style.color = '#2d2d2d')}
+              onMouseLeave={e => (e.currentTarget.style.color = '#9a9490')}
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* History List */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 12px' }}>
+          {history.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px 16px', color: '#b0aaa3' }}>
+              <Clock size={32} style={{ opacity: 0.3, marginBottom: 10 }} />
+              <p style={{ margin: 0, fontSize: 13 }}>暂无搜索记录</p>
+              <p style={{ margin: '4px 0 0', fontSize: 11 }}>开始转换计应后将显示在这里</p>
+            </div>
+          ) : (
+            history.map((item, idx) => (
+              <div
+                key={item.id}
+                className="history-item"
+                onClick={() => handleClickHistory(item)}
+                style={{
+                  padding: '12px 14px',
+                  borderRadius: 12,
+                  marginBottom: 8,
+                  background: '#ffffff',
+                  border: '1.5px solid transparent',
+                  cursor: 'pointer',
+                  transition: 'border-color 0.15s, box-shadow 0.15s, background 0.15s',
+                  animationDelay: `${idx * 0.04}s`,
+                  boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.borderColor = '#d97757';
+                  e.currentTarget.style.boxShadow = '0 2px 10px rgba(217,119,87,0.15)';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.borderColor = 'transparent';
+                  e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.05)';
+                }}
+              >
+                {/* 标题 */}
+                <p style={{
+                  margin: '0 0 4px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: '#2d2d2d',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}>{item.title}</p>
+
+                {/* URL */}
+                <p style={{
+                  margin: '0 0 6px',
+                  fontSize: 11,
+                  color: '#b0aaa3',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}>{item.url}</p>
+
+                {/* 时间 + 大小 */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 10, color: '#c9c4be', display: 'flex', alignItems: 'center', gap: 3 }}>
+                    <Clock size={10} />{formatRelativeTime(item.timestamp)}
+                  </span>
+                  <span style={{ fontSize: 10, color: '#c9c4be' }}>
+                    {Math.round(item.markdown.length / 100) / 10}k 字符
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Footer */}
+        {history.length > 0 && (
+          <div style={{ padding: '10px 16px', borderTop: '1px solid #d4cfc9', flexShrink: 0 }}>
+            <p style={{ margin: 0, fontSize: 11, color: '#b0aaa3', textAlign: 'center' }}>
+              共 {history.length}/30 条记录 · 点击可快速加载
+            </p>
+          </div>
+        )}
+      </aside>
 
       {/* Spin animation */}
       <style>{`

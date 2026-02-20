@@ -96,6 +96,63 @@ export async function POST(req: NextRequest) {
             content.find('.post-topic-des').remove();
 
             contentHtml = content.html() || '';
+
+        } else if (domain.includes('pubmed.ncbi.nlm.nih.gov')) {
+            // PubMed article page
+            title = $('h1.heading-title').text().trim() || title;
+
+            // Build article metadata block
+            const authorList = $('.authors-list').text().trim();
+            const journalInfo = $('.article-source').text().trim();
+            const pmid = $('.current-id').text().trim() || url.match(/\/([0-9]+)\/?$/)?.[1] || '';
+
+            // Abstract
+            const abstractDiv = $('#abstract');
+            abstractDiv.find('.abstract-label').each((_: number, el: any) => {
+                $(el).before('\n\n#### ');
+            });
+
+            // Conflict/Copyright
+            const conflictDiv = $('#conflict-of-interest');
+            const copyrightDiv = $('.copyright');
+
+            // Compose a structured HTML for conversion
+            let composed = `<h2>${title}</h2>`;
+            if (authorList) composed += `<p><strong>Authors:</strong> ${authorList}</p>`;
+            if (journalInfo) composed += `<p><strong>Source:</strong> ${journalInfo}</p>`;
+            if (pmid) composed += `<p><strong>PMID:</strong> ${pmid}</p>`;
+            if (abstractDiv.length) composed += `<h3>Abstract</h3>` + (abstractDiv.html() || '');
+            if (conflictDiv.length) composed += `<h3>Conflict of Interest</h3>` + (conflictDiv.html() || '');
+            if (copyrightDiv.length) composed += (copyrightDiv.html() || '');
+
+            contentHtml = composed;
+
+        } else if (domain.includes('ncbi.nlm.nih.gov')) {
+            // NCBI GEO and other NCBI pages
+            const isGeo = url.includes('/geo/');
+
+            if (isGeo) {
+                // GEO DataSet / Series page
+                title = $('h2').first().text().trim() || $('#rptt').text().trim() || title;
+
+                const mainContent = $('#maincontent').length ? $('#maincontent') : $('.rprt');
+
+                // Remove navigation and sidebars
+                mainContent.find('.breadcrumb').remove();
+                mainContent.find('#sidebar').remove();
+                mainContent.find('.portlet_content .portlet_actions').remove();
+                mainContent.find('.search_results_footer').remove();
+                mainContent.find('#nc_breadcrumb').remove();
+
+                contentHtml = mainContent.html() || $('body').html() || '';
+            } else {
+                // Generic NCBI page (PubMed search, etc.)
+                const mainContent = $('#maincontent').length ? $('#maincontent') : $('main');
+                title = $('h1').first().text().trim() || title;
+                mainContent.find('nav, .breadcrumb, #sidebar, footer').remove();
+                contentHtml = mainContent.html() || '';
+            }
+
         } else {
             // Fallback for unknown domains
             contentHtml = $('article').html() || $('main').html() || ''; // Try common article/main tags first
